@@ -36,6 +36,7 @@ app.use(cookieParser());
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
+    server: process.env.SERVER_ID
   });
 });
 
@@ -45,7 +46,7 @@ app.use('/', redirectRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT,'0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
 
