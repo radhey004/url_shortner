@@ -1,188 +1,659 @@
-# ShortLink 🔗 — Scalable URL Shortener with Redis Caching
+# ShortLink 🔗 — Scalable URL Shortener
 
-A full-stack URL shortening service built to explore real system design tradeoffs — caching strategy, database indexing, and async processing — not just another CRUD app.
+A full-stack URL shortening application built with **React.js, Node.js, Express.js, MongoDB, and Redis**.
+
+The project focuses on practical backend engineering concepts such as **Redis caching, URL redirection, authentication, click tracking, rate limiting, and containerized deployment**.
 
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?style=flat&logo=express&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat&logo=redis&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat&logo=react&logoColor=black)
-
-**[Live Demo](https://scalable-url-shortner.vercel.app)** · **[API Docs](#api-endpoints)** · **[Design Decisions](#design-decisions--tradeoffs)**
- 
-> **Note:** The live demo runs on free-tier hosting (Render + Vercel). If the link above isn't loading — Render's free tier spins down after inactivity and can take 10-15s to wake up on first load. If it's still unavailable, here's a screenshot of the app in action:
->
-> ![ShortLink demo](./demo.png)
-
----
-
-## The Problem
-
-Long URLs are unwieldy to share, easy to mistype, and give no visibility into how often a link is actually used. A URL shortener solves this — but the interesting engineering problem isn't the redirect itself, it's making that redirect **fast at scale** when reads vastly outnumber writes.
-
-## The Solution
-
-ShortLink generates short, unique codes for long URLs and serves redirects through a **cache-aside layer** in front of MongoDB, so repeated lookups on popular links skip the database entirely. Click analytics are tracked asynchronously so they never add latency to the redirect path.
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
 
 ---
 
 ## Features
 
-- 🔗 Shorten any valid URL into a compact, unique code
-- ⚡ Redis cache-aside layer for sub-millisecond redirects on cached links
-- 📊 Click tracking (count, timestamps) via non-blocking async writes
-- 🛡️ Rate limiting on link creation to prevent abuse
-- 🧭 Indexed MongoDB lookups for fast cache-miss fallback
-- 💻 Simple React UI — shorten, copy, and view analytics
+- 🔗 Create short URLs from long URLs
+- ⚡ Redis caching for fast URL redirection
+- 👤 User signup and login
+- 🔐 JWT-based authentication
+- 🔒 Password hashing using bcrypt
+- 📊 Click tracking
+- 📈 User dashboard
+- 🗑️ Delete shortened URLs
+- 📋 Copy shortened URLs
+- 📤 Share shortened URLs
+- 🚦 Rate limiting
+- 🛡️ Helmet security middleware
+- Anonymous users can create up to 2 free links
+- 🐳 Dockerized development environment
+- 🔴 RedisInsight for Redis monitoring
+- 💾 MongoDB for persistent storage
 
 ---
 
 ## Architecture
 
-```
-                    ┌─────────────┐
-   Client ────────► │   Express    │
-                    │     API      │
-                    └──────┬───────┘
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-       Cache HIT?                 Cache MISS
-              │                         │
-              ▼                         ▼
-       ┌─────────────┐          ┌──────────────┐
-       │    Redis     │ ◄────── │   MongoDB     │
-       │ (short code   │  write   │  (source of   │
-       │  → long URL)  │  back    │   truth)      │
-       └─────────────┘          └──────────────┘
-```
+```mermaid
+flowchart LR
+    User[User] --> Client[React Frontend]
+    Client --> API[Node.js + Express API]
 
-**Why cache-aside over write-through?** Writes (creating a short link) are infrequent; reads (redirects) are the hot path. Populating the cache lazily on first read — rather than on every write — avoids caching links that never get visited, keeping Redis memory usage proportional to actual traffic rather than total links created.
+    API --> Auth[JWT Authentication]
+    API --> URLService[URL Service]
+
+    URLService --> Mongo[(MongoDB)]
+    URLService --> Redis[(Redis)]
+
+    RedisInsight[RedisInsight] --> Redis
+
+    User -->|Open Short URL| API
+    API --> Redis
+
+    Redis -->|Cache Hit| API
+    Redis -->|Cache Miss| Mongo
+
+    Mongo --> API
+    API -->|Redirect| User
+```
 
 ---
 
-## Tech Stack
+## URL Shortening Flow
 
-| Layer | Tech | Why |
-|---|---|---|
-| API | Node.js + Express | Non-blocking I/O fits a read-heavy, network-bound workload (mostly waiting on DB/cache, not CPU); minimal framework overhead for a focused API |
-| Database | MongoDB Atlas | Indexed lookups on `shortCode` give O(log n) reads; flexible schema meant no migration overhead while iterating on the data model |
-| Cache | Redis | In-memory key-value store built for exactly this access pattern — single-key lookups by `shortCode`; TTL support built in, no need to hand-roll expiry logic |
-| Frontend | React | Component state (loading/error/result) maps cleanly to a small, interactive form — no need for heavier state management at this scale |
-| Short code generation | `nanoid` | Collision-resistant, URL-safe by default, avoids hand-rolled hashing bugs that are easy to get subtly wrong |
-| Testing | Jest + Supertest + mongodb-memory-server | In-memory Mongo means tests don't touch real Atlas data or require infra to be running — fast, isolated, CI-friendly |
+```mermaid
+sequenceDiagram
+    participant User
+    participant React
+    participant Express
+    participant MongoDB
+    participant Redis
 
-All free/open-source — no paid services required to run this end-to-end.
+    User->>React: Enter long URL
+    React->>Express: POST /api/shorten
+    Express->>Express: Validate URL
+    Express->>Express: Generate short code
+    Express->>MongoDB: Save URL
+    MongoDB-->>Express: URL saved
+    Express->>Redis: Cache URL
+    Redis-->>Express: Cache stored
+    Express-->>React: Return short URL
+    React-->>User: Display short URL
+```
+
+---
+
+## URL Redirection Flow
+
+```mermaid
+flowchart TD
+    A[User opens Short URL] --> B[Express Server]
+    B --> C{Redis Cache}
+
+    C -->|Cache Hit| D[Get Original URL]
+    C -->|Cache Miss| E[MongoDB]
+
+    E --> F[Store URL in Redis]
+    F --> D
+
+    D --> G[Redirect User]
+    G --> H[Increment Click Count]
+```
+
+---
+
+## Authentication Flow
+
+```mermaid
+flowchart LR
+    User[User] --> Auth{Authentication}
+
+    Auth -->|Signup| Signup[Create Account]
+    Auth -->|Login| Login[Verify Credentials]
+
+    Signup --> JWT[Generate JWT]
+    Login --> JWT
+
+    JWT --> Dashboard[User Dashboard]
+```
+
+---
+
+## Anonymous User Flow
+
+```mermaid
+flowchart TD
+    A[Anonymous User] --> B{Free Links Used?}
+
+    B -->|Less than 2| C[Create Short URL]
+    C --> D[Increase Free Link Count]
+
+    B -->|2 Links Used| E[Login / Signup]
+```
+
+---
+
+## Redis Cache Strategy
+
+```text
+Short URL Request
+       |
+       v
+     Redis
+       |
+   +---+---+
+   |       |
+  HIT    MISS
+   |       |
+   v       v
+ URL     MongoDB
+   |       |
+   |       v
+   |     Redis
+   |       |
+   +---+---+
+       |
+       v
+    Redirect
+```
+
+Redis follows a **cache-aside strategy**:
+
+1. Check Redis for the short code.
+2. If found, use the cached URL.
+3. If not found, query MongoDB.
+4. Store the URL in Redis.
+5. Redirect the user.
+
+---
+
+## Dashboard
+
+Authenticated users can:
+
+- View their shortened URLs
+- View original URLs
+- View click counts
+- Open short URLs
+- Copy short URLs
+- Share URLs
+- Delete URLs
+
+---
+
+## Click Tracking
+
+Every successful short URL access updates the click count.
+
+```text
+User
+ |
+ | GET /abc1234
+ v
+Express
+ |
+ v
+Redis
+ |
+ v
+Original URL
+ |
+ v
+Redirect
+ |
+ v
+Click Count Update
+ |
+ v
+MongoDB
+```
 
 ---
 
 ## API Endpoints
 
+### Create Short URL
+
+```http
+POST /api/shorten
 ```
-POST   /api/shorten          { longUrl } → { shortCode, shortUrl }
-GET    /:shortCode           → 302 redirect to longUrl (cache-aside lookup)
-GET    /api/analytics/:code  → { clicks, createdAt }
-DELETE /api/shorten/:code    → removes URL + invalidates cache
+
+Request:
+
+```json
+{
+  "longUrl": "https://example.com"
+}
+```
+
+Response:
+
+```json
+{
+  "shortCode": "abc1234",
+  "shortUrl": "http://localhost:5000/abc1234",
+  "longUrl": "https://example.com"
+}
+```
+
+### Redirect
+
+```http
+GET /:shortCode
+```
+
+Example:
+
+```text
+http://localhost:5000/abc1234
+```
+
+### Health Check
+
+```http
+GET /health
 ```
 
 ---
 
-## Design Decisions & Tradeoffs
+## Authentication API
 
-- **Cache-aside vs write-through**: chose cache-aside so Redis only holds links that are actually being accessed, not every link ever created — better memory efficiency for a system where most short links are never clicked more than a few times.
-- **TTL-based expiry over manual invalidation only**: guards against stale cache entries if invalidation logic ever has a bug — the cache self-heals within the TTL window even in a worst case.
-- **Async click tracking**: the redirect responds immediately; the click counter increments in a fire-and-forget write so analytics never slow down the user-facing redirect.
-- **`nanoid(7)` for short codes**: gives a large enough keyspace to make collisions rare in practice, without the complexity of a custom encoding scheme — a pragmatic choice over engineering a distributed ID generator for a project at this scale.
-- **What I'd change at higher scale**: add a CDN-level cache for the very hottest links, move to a distributed ID generator if running multiple write nodes, and add read replicas for MongoDB to handle cache-miss load separately from writes.
+### Signup
 
----
-
-## Challenges & How They Were Solved
-
-- **Node's SRV DNS resolution failing on Windows.** MongoDB Atlas connections use `mongodb+srv://` URIs, which require a DNS SRV lookup. Node's resolver failed with `querySrv ECONNREFUSED` even though MongoDB Compass connected fine with the identical URI. Isolated the issue by comparing Compass (uses the OS network stack) against Node (uses its own resolver) — confirmed it was Node-specific, not a network/firewall block. Fixed by explicitly setting Node's DNS servers (`dns.setServers(['8.8.8.8', '1.1.1.1'])`) before establishing the Mongo connection.
-- **Getting a clean cache-hit vs. cache-miss comparison for load testing.** Redis re-populates on the very first request of a load test, so a naive "flush then load test" approach doesn't produce a true uncached baseline — the run self-warms within milliseconds. Solved by temporarily bypassing the Redis check in code to get a true MongoDB-only baseline, then restoring it for the cached run — giving a clean, comparable pair of numbers instead of a contaminated measurement.
-- **Async click tracking without blocking the redirect.** Initially the click-count increment was `await`-ed before the redirect response, adding an extra database round-trip to the user-facing latency. Fixed by firing the update without awaiting it (with its own `.catch()` for error handling) so the redirect returns immediately regardless of when the write completes.
-
----
-
-## Impact / Performance
-
-Load tested with `autocannon` (50 concurrent connections, 10s duration) comparing the Redis cache-aside path against a MongoDB-only baseline:
-
-| | Avg Latency | Throughput |
-|---|---|---|
-| **With Redis cache** | 49.72 ms | ~997 req/sec |
-| **MongoDB only (no cache)** | 878.27 ms | ~53 req/sec |
-
-**~17x lower latency and ~19x higher throughput** with the caching layer in place — demonstrating why cache-aside matters for a read-heavy system like a URL shortener, where the same handful of links get hit repeatedly.
-
----
-
-## Getting Started
-
-### Prerequisites
-- Node.js (v18+)
-- Docker (for local Redis)
-- A free MongoDB Atlas account
-
-### Setup
-
-```bash
-# Clone the repo
-git clone https://github.com/yourusername/shortlink.git
-cd shortlink
-
-# Backend
-cd server
-npm install
-docker-compose up -d   # starts local Redis
-npm run dev
-
-# Frontend
-cd ../client
-npm install
-npm run dev
+```http
+POST /api/signup
 ```
 
-Create a `.env` file in `server/`:
+Request:
+
+```json
+{
+  "name": "User",
+  "email": "user@example.com",
+  "password": "password"
+}
 ```
-MONGO_URI=your_atlas_connection_string
-PORT=5000
-CLIENT_URL=http://localhost:5173
+
+### Login
+
+```http
+POST /api/login
+```
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password"
+}
 ```
 
 ---
 
 ## Project Structure
 
-```
-shortlink/
+```text
+url_shortner/
+│
+├── client/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   └── main.jsx
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   └── package.json
+│
 ├── server/
-│   ├── config/       # db.js, redis.js
-│   ├── models/       # Url.js
-│   ├── routes/       # shorten.js, redirect.js, analytics.js
-│   ├── middleware/    # rateLimiter.js
-│   ├── utils/          # logger.js
-│   ├── tests/           # shorten.test.js
-│   └── index.js
-├── client/            # React frontend
+│   ├── models/
+│   │   ├── Url.js
+│   │   └── User.js
+│   │
+│   ├── routes/
+│   │   ├── shorten.js
+│   │   ├── redirect.js
+│   │   └── auth.js
+│   │
+│   ├── middleware/
+│   ├── tests/
+│   ├── index.js
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   └── package.json
+│
 ├── docker-compose.yml
-└── README.md
+├── README.md
+└── .gitignore
 ```
 
 ---
 
-## Roadmap / Future Enhancements
+## Technology Stack
 
-- [ ] **Custom aliases** — let users pick a memorable slug instead of a random code; requires a uniqueness check against user input rather than trusting `nanoid`'s collision resistance
-- [ ] **Distributed ID generation** — at higher write volume with multiple app instances, random short codes risk more frequent collisions; a Snowflake-style ID generator would guarantee uniqueness without a DB round-trip check
-- [ ] **CDN-level caching for hot links** — Redis solves the app-tier bottleneck, but the very hottest links could be cached at the edge (e.g. Cloudflare) to skip the app server entirely
-- [ ] **Read replicas for MongoDB** — currently all reads hit the same Mongo instance on cache miss; splitting reads to a replica would isolate that load from writes
-- [ ] **QR code generation** — straightforward addition, useful for sharing short links outside a digital context
-- [ ] **Link expiry** — auto-delete links after N days, useful for reducing storage and matching real-world link lifecycle
+### Frontend
+
+- React.js
+- Vite
+- Axios
+- CSS
+
+### Backend
+
+- Node.js
+- Express.js
+- REST API
+
+### Database
+
+- MongoDB
+
+### Caching
+
+- Redis
+
+### Authentication
+
+- JSON Web Token
+- bcryptjs
+
+### Security
+
+- Helmet
+- Express Rate Limit
+
+### DevOps
+
+- Docker
+- Docker Compose
+- RedisInsight
+
+### Testing
+
+- Jest
+- Supertest
+- MongoDB Memory Server
+
+---
+
+## Docker Architecture
+
+```mermaid
+flowchart LR
+    Browser --> Client
+
+    subgraph Docker Compose
+        Client[React Client]
+        Server[Node.js Server]
+        Mongo[(MongoDB)]
+        Redis[(Redis)]
+        RedisInsight[RedisInsight]
+
+        Client --> Server
+        Server --> Mongo
+        Server --> Redis
+        RedisInsight --> Redis
+    end
+```
+
+---
+
+## Environment Variables
+
+### Server
+
+Create a `.env` file inside the `server` directory:
+
+```env
+MONGO_URI=your_mongodb_connection_string
+REDIS_URL=redis://redis:6379
+JWT_SECRET=your_jwt_secret
+PORT=5000
+```
+
+### Client
+
+Create a `.env` file inside the `client` directory:
+
+```env
+VITE_API_URL=http://localhost:5000
+```
+
+Never commit real credentials or secrets to GitHub.
+
+---
+
+## Running with Docker
+
+Clone the repository:
+
+```bash
+git clone https://github.com/radhey004/url_shortner.git
+cd url_shortner
+```
+
+Build and start the application:
+
+```bash
+docker compose up -d --build
+```
+
+Check running containers:
+
+```bash
+docker compose ps
+```
+
+View server logs:
+
+```bash
+docker compose logs -f server
+```
+
+Stop the application:
+
+```bash
+docker compose down
+```
+
+Restart:
+
+```bash
+docker compose restart
+```
+
+Rebuild after code changes:
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+---
+
+## RedisInsight
+
+RedisInsight is included in the Docker Compose setup for inspecting Redis data.
+
+Open:
+
+```text
+http://localhost:5540
+```
+
+Docker Redis connection:
+
+```text
+Host: redis
+Port: 6379
+```
+
+Useful Redis commands:
+
+```bash
+docker compose exec redis redis-cli PING
+```
+
+```bash
+docker compose exec redis redis-cli KEYS '*'
+```
+
+```bash
+docker compose exec redis redis-cli GET shortUrl:abc1234
+```
+
+```bash
+docker compose exec redis redis-cli TTL shortUrl:abc1234
+```
+
+---
+
+## Local Development
+
+### Backend
+
+```bash
+cd server
+npm install
+npm start
+```
+
+Backend:
+
+```text
+http://localhost:5000
+```
+
+### Frontend
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+---
+
+## How the System Works
+
+```text
+                    +----------------+
+                    |      User      |
+                    +-------+--------+
+                            |
+                            v
+                    +---------------+
+                    | React Client  |
+                    +-------+-------+
+                            |
+                            v
+                    +---------------+
+                    | Express API   |
+                    +-------+-------+
+                            |
+                 +----------+----------+
+                 |                     |
+                 v                     v
+          +-------------+       +-------------+
+          |    Redis    |       |   MongoDB   |
+          |    Cache    |       |  Database   |
+          +------+------+       +------+------+
+                 |                     |
+                 +----------+----------+
+                            |
+                            v
+                    +---------------+
+                    |    Redirect   |
+                    +---------------+
+```
+
+---
+
+## Database Model
+
+### URL
+
+```text
+URL
+│
+├── longUrl
+├── shortCode
+├── clicks
+└── createdAt
+```
+
+### User
+
+```text
+User
+│
+├── name
+├── email
+├── password
+└── createdAt
+```
+
+Passwords are stored as secure bcrypt hashes.
+
+---
+
+## Security
+
+The application includes:
+
+- JWT authentication
+- bcrypt password hashing
+- Helmet security headers
+- Express rate limiting
+- URL validation
+- User-specific URL management
+- Environment-based secret configuration
+
+---
+
+## Future Improvements
+
+- Custom short URL aliases
+- URL expiration
+- QR code generation
+- Advanced analytics
+- Geographic analytics
+- Custom domains
+- Admin dashboard
+- Swagger API documentation
+- Monitoring and observability
+- Production deployment improvements
+
+---
+
+## Project Goal
+
+The goal of ShortLink is to demonstrate practical backend and system design concepts through a real-world URL shortening application.
+
+Key concepts demonstrated:
+
+- REST API design
+- Authentication
+- Database design
+- Redis caching
+- Cache-aside architecture
+- URL redirection
+- Click tracking
+- Rate limiting
+- Security middleware
+- Docker containerization
+- Full-stack application development
 
 ---
 
 ## License
 
-MIT
+This project is for educational and portfolio purposes.
