@@ -28,6 +28,9 @@ The project focuses on practical backend engineering concepts such as **Redis ca
 - 🚦 Rate limiting
 - 🛡️ Helmet security middleware
 - Anonymous users can create up to 2 free links
+- ⚖️ Nginx reverse proxy and round-robin load balancing
+- 🖥️ Three horizontally scaled Express backend instances
+- ❤️ Health check endpoint for backend instance verification
 - 🐳 Dockerized development environment
 - 🔴 RedisInsight for Redis monitoring
 - 💾 MongoDB for persistent storage
@@ -39,24 +42,23 @@ The project focuses on practical backend engineering concepts such as **Redis ca
 ```mermaid
 flowchart LR
     User[User] --> Client[React Frontend]
-    Client --> API[Node.js + Express API]
+    Client --> Nginx[Nginx Load Balancer]
 
-    API --> Auth[JWT Authentication]
-    API --> URLService[URL Service]
+    Nginx --> Server1[Express Server 1]
+    Nginx --> Server2[Express Server 2]
+    Nginx --> Server3[Express Server 3]
 
-    URLService --> Mongo[(MongoDB)]
-    URLService --> Redis[(Redis)]
+    Server1 --> Mongo[(MongoDB)]
+    Server2 --> Mongo
+    Server3 --> Mongo
+
+    Server1 --> Redis[(Redis)]
+    Server2 --> Redis
+    Server3 --> Redis
 
     RedisInsight[RedisInsight] --> Redis
 
-    User -->|Open Short URL| API
-    API --> Redis
-
-    Redis -->|Cache Hit| API
-    Redis -->|Cache Miss| Mongo
-
-    Mongo --> API
-    API -->|Redirect| User
+    Nginx -->|Health Check| Health[GET /health]
 ```
 
 ---
@@ -134,6 +136,38 @@ flowchart TD
 ```
 
 ---
+
+## Load Balancing
+
+Nginx acts as the reverse proxy and load balancer in front of three Express backend instances:
+
+```text
+                    Nginx
+                      |
+          +-----------+-----------+
+          |           |           |
+          v           v           v
+       Server1     Server2     Server3
+```
+
+The backend instances are configured with the same application environment and share MongoDB and Redis.
+
+Nginx uses round-robin distribution by default. The setup was verified using repeated requests to:
+
+```http
+GET /health
+```
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "server": "server1"
+}
+```
+
+Repeated requests return `server1`, `server2`, and `server3`, demonstrating that traffic is distributed across the backend instances.
 
 ## Redis Cache Strategy
 
@@ -386,14 +420,27 @@ flowchart LR
 
     subgraph Docker Compose
         Client[React Client]
-        Server[Node.js Server]
+        Nginx[Nginx Load Balancer]
+        Server1[Node.js Server 1]
+        Server2[Node.js Server 2]
+        Server3[Node.js Server 3]
         Mongo[(MongoDB)]
         Redis[(Redis)]
         RedisInsight[RedisInsight]
 
-        Client --> Server
-        Server --> Mongo
-        Server --> Redis
+        Client --> Nginx
+        Nginx --> Server1
+        Nginx --> Server2
+        Nginx --> Server3
+
+        Server1 --> Mongo
+        Server2 --> Mongo
+        Server3 --> Mongo
+
+        Server1 --> Redis
+        Server2 --> Redis
+        Server3 --> Redis
+
         RedisInsight --> Redis
     end
 ```
@@ -545,37 +592,45 @@ http://localhost:5173
 ## How the System Works
 
 ```text
-                    +----------------+
-                    |      User      |
-                    +-------+--------+
-                            |
-                            v
-                    +---------------+
-                    | React Client  |
-                    +-------+-------+
-                            |
-                            v
-                    +---------------+
-                    | Express API   |
-                    +-------+-------+
-                            |
-                 +----------+----------+
-                 |                     |
-                 v                     v
-          +-------------+       +-------------+
-          |    Redis    |       |   MongoDB   |
-          |    Cache    |       |  Database   |
-          +------+------+       +------+------+
-                 |                     |
-                 +----------+----------+
-                            |
-                            v
-                    +---------------+
-                    |    Redirect   |
-                    +---------------+
+                         +----------------+
+                         |      User      |
+                         +-------+--------+
+                                 |
+                                 v
+                         +---------------+
+                         | React Client  |
+                         +-------+-------+
+                                 |
+                                 v
+                         +---------------+
+                         |     Nginx     |
+                         | Load Balancer |
+                         +-------+-------+
+                                 |
+                +----------------+----------------+
+                |                |                |
+                v                v                v
+          +-----------+    +-----------+    +-----------+
+          |  Server1  |    |  Server2  |    |  Server3  |
+          |  Express  |    |  Express  |    |  Express  |
+          +-----+-----+    +-----+-----+    +-----+-----+
+                |                |                |
+                +----------------+----------------+
+                                 |
+                         +-------+-------+
+                         |               |
+                         v               v
+                  +-------------+  +-------------+
+                  |    Redis    |  |   MongoDB   |
+                  |    Cache    |  |  Database   |
+                  +-------------+  +-------------+
 ```
 
----
+Nginx distributes incoming requests across three independent Express server instances using round-robin load balancing.
+
+The backend instances share the same MongoDB database and Redis cache, allowing the application to scale horizontally while maintaining shared application data and cached short URLs.
+
+The `/health` endpoint can be used to verify which backend instance handled a request.
 
 ## Database Model
 
@@ -650,6 +705,9 @@ Key concepts demonstrated:
 - Rate limiting
 - Security middleware
 - Docker containerization
+- Nginx reverse proxy
+- Horizontal scaling
+- Round-robin load balancing
 - Full-stack application development
 
 ---
