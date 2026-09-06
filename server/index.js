@@ -18,16 +18,16 @@ const authRoutes = require('./routes/auth');
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 connectDB();
 connectRedis();
 
 app.use(helmet());
 
-app.set("trust proxy", 1);
-
 app.use(cors({
-    origin: process.env.CLIENT_URL,
-    credentials: true
+  origin: process.env.CLIENT_URL,
+  credentials: true
 }));
 
 app.use(express.json());
@@ -46,7 +46,7 @@ app.use('/', redirectRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT,'0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
 
