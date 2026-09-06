@@ -89,9 +89,7 @@ router.post('/shorten', shortenLimiter, async (req, res) => {
 
     await newUrl.save();
 
-    const shortUrl = `${req.protocol}://${req.get(
-      'host'
-    )}/${shortCode}`;
+    const shortUrl = `${process.env.PUBLIC_SHORT_URL}/${shortCode}`;
 
     res.status(201).json({
       shortCode,

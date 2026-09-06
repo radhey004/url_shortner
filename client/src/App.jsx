@@ -6,6 +6,10 @@ const API_URL =
   import.meta.env.VITE_API_URL ||
   'http://localhost:5000';
 
+const PUBLIC_SHORT_URL =
+  import.meta.env.VITE_PUBLIC_SHORT_URL ||
+  window.location.origin;
+
 function App() {
   const [longUrl, setLongUrl] = useState('');
   const [shortUrl, setShortUrl] = useState('');
@@ -391,11 +395,11 @@ function App() {
                     <div className="url-info">
                       <a
                         className="short-url"
-                        href={`${API_URL}/${url.shortCode}`}
+                        href={`${PUBLIC_SHORT_URL}/${url.shortCode}`}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        {API_URL}/{url.shortCode}
+                        {PUBLIC_SHORT_URL}/{url.shortCode}
                       </a>
 
                       <div className="original-url">
@@ -413,7 +417,7 @@ function App() {
                           className="share-button"
                           onClick={() =>
                             shareUrl(
-                              `${API_URL}/${url.shortCode}`,
+                              `${PUBLIC_SHORT_URL}/${url.shortCode}`,
                               url.shortCode
                             )
                           }

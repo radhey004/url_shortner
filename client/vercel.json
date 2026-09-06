@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/:code",
+      "destination": "https://url-shortener-api-783y.onrender.com/:code"
+    }
+  ]
+}
